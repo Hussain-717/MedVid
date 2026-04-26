@@ -1,0 +1,39 @@
+# ── Dependencies ──────────────────────────────────────────
+node_modules/
+__pycache__/
+*.pyc
+
+# ── Environment / Secrets ─────────────────────────────────
+.env
+.env.local
+.env.*.local
+
+# ── Uploaded patient videos (sensitive medical data) ──────
+backend/uploads/
+
+# ── AI model weights (383MB — exceeds GitHub 100MB limit) ─
+model-service/best_model.pth
+*.pth
+*.pt
+
+# ── Generated / temporary files ───────────────────────────
+model-service/clips/
+model-service/temp/
+model-service/__pycache__/
+
+# ── Frontend build output ─────────────────────────────────
+frontend/dist/
+frontend/dist-ssr/
+
+# ── Logs ──────────────────────────────────────────────────
+*.log
+npm-debug.log*
+yarn-debug.log*
+
+# ── OS / Editor ───────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.suo
+*.sw?
