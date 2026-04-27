@@ -5,7 +5,7 @@ const User        = require('../models/User');
 const getConsultants = async (req, res) => {
     try {
         const targetRole = req.user.role === 'Consultant' ? 'Doctor' : 'Consultant';
-        const contacts   = await User.find({ role: targetRole, status: 'approved' })
+        const contacts   = await User.find({ role: targetRole, status: { $nin: ['pending', 'rejected'] } })
             .select('name email designation affiliation');
 
         const enriched = await Promise.all(contacts.map(async (c) => {

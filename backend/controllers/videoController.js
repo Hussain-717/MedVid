@@ -1,4 +1,4 @@
-const Video    = require('../models/Video');
+﻿const Video    = require('../models/Video');
 const Analysis = require('../models/Analysis');
 const AuditLog = require('../models/AuditLog');
 const axios    = require('axios');
@@ -290,4 +290,23 @@ const deleteVideo = async (req, res) => {
     }
 };
 
-module.exports = { uploadVideo, analyzeVideo, getHistory, deleteVideo };
+// GET /api/video/:videoId/download
+const downloadVideo = async (req, res) => {
+    try {
+        const { videoId } = req.params;
+        const video = await Video.findById(videoId);
+        if (!video) return res.status(404).json({ message: 'Video not found.' });
+        if (video.uploadedBy.toString() !== req.user.id.toString())
+            return res.status(403).json({ message: 'Not authorised.' });
+        if (!video.filePath || !fs.existsSync(video.filePath))
+            return res.status(404).json({ message: 'Video file not found on server.' });
+
+        res.setHeader('Content-Disposition', `attachment; filename="${video.originalName}"`);
+        res.setHeader('Content-Type', video.mimeType || 'video/mp4');
+        fs.createReadStream(video.filePath).pipe(res);
+    } catch (err) {
+        res.status(500).json({ message: 'Server error during video download.' });
+    }
+};
+
+module.exports = { uploadVideo, analyzeVideo, getHistory, deleteVideo, downloadVideo };

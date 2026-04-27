@@ -13,9 +13,9 @@ import {
     AddCircleOutline as AddIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
-import { getPatients } from '../services/api';
+import { getPatients, getVideoThumbnail } from '../services/api';
+import api from '../services/api';
 
-// ─── Reusable Text Field ───────────────────────────────────────────────────────
 const RoundedTextField = ({ label, value, onChange, required, icon: Icon, accentColor, type = "text" }) => (
     <TextField
         label={label}
@@ -36,32 +36,29 @@ const RoundedTextField = ({ label, value, onChange, required, icon: Icon, accent
     />
 );
 
-// ─── Main Component ────────────────────────────────────────────────────────────
 export default function UploadPage() {
-    const theme     = useTheme();
-    const navigate  = useNavigate();
+    const theme        = useTheme();
+    const navigate     = useNavigate();
     const fileInputRef = useRef(null);
+    const videoRef     = useRef(null);
     const accentColor  = theme.palette.infoHighlight || theme.palette.primary.main;
 
-    // ── Video State ──
-    const [selectedFile,    setSelectedFile]    = useState(null);
-    const [previewUrl,      setPreviewUrl]       = useState(null);
-    const [uploadProgress,  setUploadProgress]   = useState(0);
-    const [isUploading,     setIsUploading]      = useState(false);
-
-    // ── Patient State ──
-    const [patientType,             setPatientType]             = useState('new');
-    const [patientName,             setPatientName]             = useState('');
-    const [patientAge,              setPatientAge]              = useState('');
-    const [patientGender,           setPatientGender]           = useState('');
-    const [selectedExistingPatient, setSelectedExistingPatient] = useState(null);
-    const [existingPatients,        setExistingPatients]        = useState([]);
-    const [patientsLoading,         setPatientsLoading]         = useState(false);
-
-    // ── Snackbar State ──
-    const [snackbarOpen,     setSnackbarOpen]     = useState(false);
-    const [snackbarMessage,  setSnackbarMessage]  = useState('');
-    const [snackbarSeverity, setSnackbarSeverity] = useState('info');
+    const [selectedFile,             setSelectedFile]             = useState(null);
+    const [previewUrl,               setPreviewUrl]               = useState(null);
+    const [uploadProgress,           setUploadProgress]           = useState(0);
+    const [isUploading,              setIsUploading]              = useState(false);
+    const [patientType,              setPatientType]              = useState('new');
+    const [patientName,              setPatientName]              = useState('');
+    const [patientAge,               setPatientAge]               = useState('');
+    const [patientGender,            setPatientGender]            = useState('');
+    const [selectedExistingPatient,  setSelectedExistingPatient]  = useState(null);
+    const [existingPatients,         setExistingPatients]         = useState([]);
+    const [patientsLoading,          setPatientsLoading]          = useState(false);
+    const [snackbarOpen,             setSnackbarOpen]             = useState(false);
+    const [snackbarMessage,          setSnackbarMessage]          = useState('');
+    const [snackbarSeverity,         setSnackbarSeverity]         = useState('info');
+    const [previewError,             setPreviewError]             = useState(false);
+    const [thumbnailUrl,             setThumbnailUrl]             = useState(null);
 
     const showSnackbar = (message, severity = 'info') => {
         setSnackbarMessage(message);
@@ -69,13 +66,20 @@ export default function UploadPage() {
         setSnackbarOpen(true);
     };
 
-    // ── Fetch Existing Patients on Mount ──────────────────────────────────────
+    // Play video when a new file is selected
+    useEffect(() => {
+        if (videoRef.current && previewUrl) {
+            videoRef.current.load();
+            videoRef.current.play().catch(() => {});
+        }
+    }, [previewUrl]);
+
+    // Fetch existing patients on mount
     useEffect(() => {
         const fetchPatients = async () => {
             setPatientsLoading(true);
             try {
                 const patients = await getPatients();
-                console.log("✅ Fetched patients:", patients); // check browser console
                 if (Array.isArray(patients) && patients.length > 0) {
                     setExistingPatients(patients.map(p => ({
                         name:   p.name,
@@ -83,8 +87,6 @@ export default function UploadPage() {
                         age:    p.age    || '',
                         gender: p.gender || '',
                     })));
-                } else {
-                    console.warn("No patients found in database yet.");
                 }
             } catch (err) {
                 console.error("Failed to load patients:", err);
@@ -95,20 +97,25 @@ export default function UploadPage() {
         fetchPatients();
     }, []);
 
-    // ── File Selection ────────────────────────────────────────────────────────
     const handleFileChange = (e) => {
         const file = e.target.files[0];
         if (!file || !file.type.startsWith('video/')) {
             showSnackbar('Please select a valid video file.', 'error');
             return;
         }
+        const url = URL.createObjectURL(file);
+        setPreviewError(false);
+        setThumbnailUrl(null);
         setSelectedFile(file);
-        setPreviewUrl(URL.createObjectURL(file));
+        setPreviewUrl(url);
+
+        // Fetch thumbnail in background — doesn't block anything
+        getVideoThumbnail(file)
+            .then(res => setThumbnailUrl(res.data.thumbnail))
+            .catch(() => {});
     };
 
-    // ── Upload & Analyze ──────────────────────────────────────────────────────
     const handleUploadAndAnalyze = async () => {
-        // Validation
         if (!selectedFile) {
             showSnackbar('Please select a video file.', 'warning');
             return;
@@ -126,7 +133,6 @@ export default function UploadPage() {
         setUploadProgress(10);
 
         try {
-            const token    = localStorage.getItem('medvid_token');
             const formData = new FormData();
             formData.append('video', selectedFile);
 
@@ -142,16 +148,18 @@ export default function UploadPage() {
 
             setUploadProgress(30);
 
-            const response = await fetch('http://localhost:5000/api/analysis/upload', {
-                method:  'POST',
-                headers: { 'Authorization': `Bearer ${token}` },
-                body:    formData
+            const response = await api.post('/analysis/upload', formData, {
+                headers: { 'Content-Type': 'multipart/form-data' },
+                onUploadProgress: (e) => {
+                    const pct = Math.round((e.loaded / e.total) * 60) + 30;
+                    setUploadProgress(Math.min(pct, 90));
+                }
             });
 
             setUploadProgress(90);
-            const data = await response.json();
+            const data = response.data;
 
-            if (!response.ok) {
+            if (response.status < 200 || response.status >= 300) {
                 throw new Error(data.message || 'Upload failed');
             }
 
@@ -170,7 +178,6 @@ export default function UploadPage() {
         }
     };
 
-    // ── Render ────────────────────────────────────────────────────────────────
     return (
         <Box sx={{ p: 4, maxWidth: '1600px', margin: '0 auto' }}>
             <Typography variant="h4" fontWeight="bold" mb={4}>
@@ -179,18 +186,15 @@ export default function UploadPage() {
 
             <Grid container spacing={4}>
 
-                {/* ── PATIENT CARD ───────────────────────────────────────── */}
+                {/* Patient Card */}
                 <Grid item xs={12} md={6}>
                     <Paper elevation={8} sx={{ p: 4, borderRadius: '24px', minHeight: '420px' }}>
 
                         <Box display="flex" alignItems="center" mb={2}>
                             <PersonIcon sx={{ color: accentColor, mr: 1 }} />
-                            <Typography variant="h5" fontWeight="bold">
-                                Patient Data
-                            </Typography>
+                            <Typography variant="h5" fontWeight="bold">Patient Data</Typography>
                         </Box>
 
-                        {/* Toggle: New vs Existing */}
                         <ToggleButtonGroup
                             value={patientType}
                             exclusive
@@ -206,34 +210,13 @@ export default function UploadPage() {
                             </ToggleButton>
                         </ToggleButtonGroup>
 
-                        {/* New Patient Fields */}
                         <Fade in={patientType === 'new'} timeout={300} unmountOnExit>
                             <Box>
-                                <RoundedTextField
-                                    label="Patient Full Name"
-                                    value={patientName}
-                                    onChange={(e) => setPatientName(e.target.value)}
-                                    required
-                                    icon={PersonIcon}
-                                    accentColor={accentColor}
-                                />
-                                <RoundedTextField
-                                    label="Age"
-                                    value={patientAge}
-                                    onChange={(e) => setPatientAge(e.target.value)}
-                                    required
-                                    type="number"
-                                    icon={PersonIcon}
-                                    accentColor={accentColor}
-                                />
+                                <RoundedTextField label="Patient Full Name" value={patientName} onChange={(e) => setPatientName(e.target.value)} required icon={PersonIcon} accentColor={accentColor} />
+                                <RoundedTextField label="Age" value={patientAge} onChange={(e) => setPatientAge(e.target.value)} required type="number" icon={PersonIcon} accentColor={accentColor} />
                                 <TextField
-                                    select
-                                    label="Gender"
-                                    fullWidth
-                                    required
-                                    margin="normal"
-                                    value={patientGender}
-                                    onChange={(e) => setPatientGender(e.target.value)}
+                                    select label="Gender" fullWidth required margin="normal"
+                                    value={patientGender} onChange={(e) => setPatientGender(e.target.value)}
                                     sx={{ '& .MuiOutlinedInput-root': { borderRadius: '12px' } }}
                                 >
                                     <MenuItem value="Male">Male</MenuItem>
@@ -243,7 +226,6 @@ export default function UploadPage() {
                             </Box>
                         </Fade>
 
-                        {/* Existing Patient Dropdown */}
                         <Fade in={patientType === 'existing'} timeout={300} unmountOnExit>
                             <Box>
                                 <Autocomplete
@@ -253,7 +235,6 @@ export default function UploadPage() {
                                     getOptionLabel={(o) => `${o.name} (${o.id})`}
                                     onChange={(e, val) => {
                                         setSelectedExistingPatient(val);
-                                        // Auto-fill age & gender from selected patient
                                         if (val) {
                                             setPatientAge(val.age?.toString() || '');
                                             setPatientGender(val.gender || '');
@@ -263,19 +244,15 @@ export default function UploadPage() {
                                         <TextField
                                             {...params}
                                             label={
-                                                patientsLoading
-                                                    ? "Loading patients..."
-                                                    : existingPatients.length === 0
-                                                    ? "No patients found — add a new one first"
-                                                    : "Search Patient Database"
+                                                patientsLoading ? "Loading patients..." :
+                                                existingPatients.length === 0 ? "No patients found — add a new one first" :
+                                                "Search Patient Database"
                                             }
                                             margin="normal"
                                             sx={{ '& .MuiOutlinedInput-root': { borderRadius: '12px' } }}
                                         />
                                     )}
                                 />
-
-                                {/* Show auto-filled info */}
                                 {selectedExistingPatient && (
                                     <Box sx={{ mt: 2, p: 2, borderRadius: '12px', bgcolor: accentColor + '15', border: `1px solid ${accentColor}40` }}>
                                         <Typography variant="body2" color="text.secondary">
@@ -291,37 +268,26 @@ export default function UploadPage() {
                     </Paper>
                 </Grid>
 
-                {/* ── UPLOAD CARD ────────────────────────────────────────── */}
+                {/* Upload Card */}
                 <Grid item xs={12} md={6}>
-                    <Paper
-                        elevation={8}
-                        sx={{
-                            p: 4, borderRadius: '24px', minHeight: '420px',
-                            textAlign: 'center',
-                            border: `3px dashed ${accentColor}80`,
-                            display: 'flex', flexDirection: 'column',
-                            justifyContent: 'center', alignItems: 'center',
-                        }}
-                    >
+                    <Paper elevation={8} sx={{
+                        p: 4, borderRadius: '24px', minHeight: '420px',
+                        textAlign: 'center', border: `3px dashed ${accentColor}80`,
+                        display: 'flex', flexDirection: 'column',
+                        justifyContent: 'center', alignItems: 'center',
+                    }}>
                         <CloudUploadIcon sx={{ fontSize: 80, color: accentColor, mb: 2 }} />
-                        <Typography variant="h5" fontWeight="bold" mb={2}>
-                            Upload Diagnostic Video
-                        </Typography>
+                        <Typography variant="h5" fontWeight="bold" mb={2}>Upload Diagnostic Video</Typography>
 
                         <Button
-                            variant="contained"
-                            component="label"
-                            startIcon={<VideocamIcon />}
-                            size="large"
+                            variant="contained" component="label"
+                            startIcon={<VideocamIcon />} size="large"
                             sx={{ borderRadius: '12px', mb: 3, px: 6 }}
                         >
                             Browse Files
                             <input
-                                hidden
-                                type="file"
-                                accept="video/*"
-                                ref={fileInputRef}
-                                onChange={handleFileChange}
+                                hidden type="file" accept="video/*"
+                                ref={fileInputRef} onChange={handleFileChange}
                             />
                         </Button>
 
@@ -333,20 +299,56 @@ export default function UploadPage() {
                     </Paper>
                 </Grid>
 
-                {/* ── PREVIEW & ACTION ───────────────────────────────────── */}
+                {/* Preview & Action */}
                 <Grid item xs={12}>
                     <Paper elevation={8} sx={{ p: 4, borderRadius: '24px' }}>
                         <Grid container spacing={4} alignItems="center">
 
                             {/* Video Preview */}
                             <Grid item xs={12} md={8}>
-                                {previewUrl ? (
+                                {previewUrl && !previewError ? (
                                     <video
+                                        ref={videoRef}
                                         src={previewUrl}
+                                        poster={thumbnailUrl || undefined}
                                         controls
+                                        autoPlay
+                                        muted
                                         width="100%"
                                         style={{ borderRadius: '12px', maxHeight: '500px', backgroundColor: '#000' }}
+                                        onError={() => setPreviewError(true)}
                                     />
+                                ) : previewUrl && previewError ? (
+                                    thumbnailUrl ? (
+                                        <Box sx={{ position: 'relative', borderRadius: '12px', overflow: 'hidden' }}>
+                                            <img
+                                                src={thumbnailUrl}
+                                                alt="Video thumbnail"
+                                                style={{ width: '100%', maxHeight: '500px', objectFit: 'cover', borderRadius: '12px', display: 'block' }}
+                                            />
+                                            <Box sx={{
+                                                position: 'absolute', bottom: 0, left: 0, right: 0,
+                                                bgcolor: 'rgba(0,0,0,0.6)', p: 1.5, borderRadius: '0 0 12px 12px'
+                                            }}>
+                                                <Typography variant="body2" color="white" textAlign="center">
+                                                    {selectedFile?.name} — ready to analyze
+                                                </Typography>
+                                            </Box>
+                                        </Box>
+                                    ) : (
+                                        <Box sx={{
+                                            height: 250, display: 'flex', alignItems: 'center',
+                                            justifyContent: 'center', flexDirection: 'column',
+                                            border: `1px dashed ${accentColor}80`, borderRadius: '12px',
+                                            bgcolor: accentColor + '08', gap: 1
+                                        }}>
+                                            <VideocamIcon sx={{ fontSize: 48, color: accentColor }} />
+                                            <Typography fontWeight="bold" color="text.primary">{selectedFile?.name}</Typography>
+                                            <Typography variant="body2" color="text.secondary">
+                                                Loading preview...
+                                            </Typography>
+                                        </Box>
+                                    )
                                 ) : (
                                     <Box sx={{
                                         height: 250, display: 'flex', alignItems: 'center',
@@ -374,17 +376,9 @@ export default function UploadPage() {
                                         />
                                     </Box>
                                 )}
-
                                 <Button
-                                    fullWidth
-                                    size="large"
-                                    variant="contained"
-                                    color="secondary"
-                                    startIcon={
-                                        isUploading
-                                            ? <CircularProgress size={24} color="inherit" />
-                                            : <VideocamIcon />
-                                    }
+                                    fullWidth size="large" variant="contained" color="secondary"
+                                    startIcon={isUploading ? <CircularProgress size={24} color="inherit" /> : <VideocamIcon />}
                                     disabled={isUploading || !selectedFile}
                                     onClick={handleUploadAndAnalyze}
                                     sx={{ borderRadius: '16px', py: 3, fontSize: '1.1rem', fontWeight: 'bold' }}
@@ -399,14 +393,8 @@ export default function UploadPage() {
 
             </Grid>
 
-            <Snackbar
-                open={snackbarOpen}
-                autoHideDuration={4000}
-                onClose={() => setSnackbarOpen(false)}
-            >
-                <Alert severity={snackbarSeverity} variant="filled">
-                    {snackbarMessage}
-                </Alert>
+            <Snackbar open={snackbarOpen} autoHideDuration={4000} onClose={() => setSnackbarOpen(false)}>
+                <Alert severity={snackbarSeverity} variant="filled">{snackbarMessage}</Alert>
             </Snackbar>
         </Box>
     );

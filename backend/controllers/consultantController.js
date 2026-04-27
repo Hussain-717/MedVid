@@ -1,3 +1,6 @@
+const fs       = require('fs');
+const path     = require('path');
+const { spawn } = require('child_process');
 const Video    = require('../models/Video');
 const Analysis = require('../models/Analysis');
 const Report   = require('../models/Report');
@@ -329,6 +332,79 @@ const getConsultantList = async (req, res) => {
     }
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/consultant/video/:videoId
+// Streams the original video file to a verified consultant (referral required)
+// ─────────────────────────────────────────────────────────────────────────────
+const streamVideoForConsultant = async (req, res) => {
+    try {
+        if (req.user.role !== 'Consultant') {
+            return res.status(403).json({ message: 'Access denied. Consultants only.' });
+        }
+
+        const { videoId } = req.params;
+
+        const referral = await ChatMessage.findOne({
+            receiverId: req.user.id,
+            videoId,
+        });
+
+        if (!referral) {
+            return res.status(403).json({ message: 'No referral found for this video.' });
+        }
+
+        const video = await Video.findById(videoId);
+        if (!video) {
+            return res.status(404).json({ message: 'Video not found.' });
+        }
+
+        const filePath = video.filePath;
+        if (!fs.existsSync(filePath)) {
+            return res.status(404).json({ message: 'Video file not found on disk.' });
+        }
+
+        const ext = path.extname(filePath).toLowerCase();
+
+        if (ext === '.mp4') {
+            const stat = fs.statSync(filePath);
+            res.status(200).set({
+                'Content-Length': stat.size,
+                'Content-Type':   'video/mp4',
+                'Accept-Ranges':  'bytes',
+            });
+            fs.createReadStream(filePath).pipe(res);
+        } else {
+            // AVI (or other) — transcode to fragmented MP4 via ffmpeg and pipe directly
+            const ff = spawn('ffmpeg', [
+                '-i', filePath,
+                '-vcodec', 'libx264',
+                '-acodec', 'aac',
+                '-movflags', 'frag_keyframe+empty_moov+default_base_moof',
+                '-pix_fmt', 'yuv420p',
+                '-f', 'mp4',
+                'pipe:1',
+            ]);
+
+            res.status(200).set({ 'Content-Type': 'video/mp4' });
+            ff.stdout.pipe(res);
+            ff.stderr.on('data', (d) => console.log('[ffmpeg]', d.toString()));
+            ff.on('error', (err) => {
+                console.error('ffmpeg spawn error:', err.message);
+                if (!res.headersSent) {
+                    res.status(500).json({ message: 'Video conversion failed — ffmpeg not found.' });
+                }
+            });
+            req.on('close', () => ff.kill('SIGTERM'));
+        }
+
+    } catch (err) {
+        console.error('Stream video error:', err.message);
+        if (!res.headersSent) {
+            res.status(500).json({ message: 'Server error streaming video.' });
+        }
+    }
+};
+
 // Keep old submitReview for backward compat
 const submitReview = verifyCase;
 
@@ -339,4 +415,5 @@ module.exports = {
     getConsultantStats,
     getConsultantList,
     submitReview,
+    streamVideoForConsultant,
 };

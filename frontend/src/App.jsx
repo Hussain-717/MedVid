@@ -6,8 +6,10 @@ import { ThemeContextProvider } from "./context/ThemeContext";
 import { NotificationProvider, useNotifications } from "./context/NotificationContext";
 import AppRoutes from "./routes/AppRoutes";
 
-export const SocketContext = createContext(null);
-export const useSocket = () => useContext(SocketContext);
+export const SocketContext      = createContext(null);
+export const SocketReadyContext = createContext(false);
+export const useSocket      = () => useContext(SocketContext);
+export const useSocketReady = () => useContext(SocketReadyContext);
 
 function MessageToast({ toast, onClose }) {
     return (
@@ -75,7 +77,8 @@ function AppInner({ socketRef }) {
 }
 
 function App() {
-    const socketRef = useRef(null);
+    const socketRef               = useRef(null);
+    const [socketReady, setSocketReady] = useState(false);
 
     useEffect(() => {
         const isFirstLoad = !sessionStorage.getItem("medvid_app_loaded");
@@ -96,39 +99,40 @@ function App() {
         });
         socketRef.current = socket;
 
-        socket.on('connect', () => {
-            console.log("✅ Global socket connected:", socket.id);
+        const registerUser = () => {
             const user = JSON.parse(localStorage.getItem("medvid_user") || "{}");
             const myId = user.id || user._id;
             if (myId) {
                 socket.emit('user_connected', String(myId));
                 console.log("✅ Registered userId:", myId);
             }
+        };
+
+        socket.on('connect', () => {
+            console.log("✅ Global socket connected:", socket.id);
+            setSocketReady(true);
+            registerUser();
         });
 
-        socket.on('reconnect', () => {
-            const user = JSON.parse(localStorage.getItem("medvid_user") || "{}");
-            const myId = user.id || user._id;
-            if (myId) {
-                socket.emit('user_connected', String(myId));
-                console.log("✅ Re-registered after reconnect:", myId);
-            }
+        socket.on('disconnect', () => {
+            console.log("❌ Global socket disconnected");
+            setSocketReady(false);
         });
-
-        socket.on('disconnect', () => console.log("❌ Global socket disconnected"));
 
         return () => { socket.disconnect(); };
     }, []);
 
     return (
         <SocketContext.Provider value={socketRef}>
-            <ThemeContextProvider>
-                <NotificationProvider>
-                    <Router>
-                        <AppInner socketRef={socketRef} />
-                    </Router>
-                </NotificationProvider>
-            </ThemeContextProvider>
+            <SocketReadyContext.Provider value={socketReady}>
+                <ThemeContextProvider>
+                    <NotificationProvider>
+                        <Router>
+                            <AppInner socketRef={socketRef} />
+                        </Router>
+                    </NotificationProvider>
+                </ThemeContextProvider>
+            </SocketReadyContext.Provider>
         </SocketContext.Provider>
     );
 }

@@ -3,43 +3,39 @@ import { useNotifications } from "../context/NotificationContext";
 import {
     Container, Typography, Paper, TextField, Button, Box, useTheme,
     Chip, List, ListItem, ListItemText, ListItemAvatar, Avatar,
-    Badge, CircularProgress, Alert
+    Badge, CircularProgress, Alert, Dialog, DialogTitle,
+    DialogContent, DialogActions, Snackbar
 } from "@mui/material";
 import {
     Send as SendIcon, Share, RateReview,
-    AssignmentTurnedIn, Search, Chat, FiberManualRecord,
-    DeleteOutline
+    Search, Chat, DeleteOutline
 } from "@mui/icons-material";
 import {
     getConsultantList,
     getChatMessages,
-    sendChatMessage
+    sendChatMessage,
+    getHistory,
+    getResults
 } from "../services/api";
 import api from "../services/api";
-import { useSocket } from "../App";
+import { useSocket, useSocketReady } from "../App";
 
 // ── Message Bubble ─────────────────────────────────────────────────────
 const Message = ({ msg, isMe, accentColor, theme }) => {
 
-    // ✅ PDF download with auth token
     const handleDownloadReport = async () => {
         try {
-            const token    = localStorage.getItem('medvid_token');
-            const response = await fetch(msg.reportUrl, {
-                headers: { Authorization: `Bearer ${token}` }
-            });
-            if (!response.ok) throw new Error('Download failed');
-            const blob     = await response.blob();
-            const url      = window.URL.createObjectURL(blob);
-            const a        = document.createElement('a');
-            a.href         = url;
-            a.download     = `MedVid-Report.pdf`;
+            const response = await api.get(msg.reportUrl, { responseType: 'blob' });
+            const url = window.URL.createObjectURL(new Blob([response.data]));
+            const a   = document.createElement('a');
+            a.href     = url;
+            a.download = 'MedVid-Report.pdf';
             document.body.appendChild(a);
             a.click();
             a.remove();
             window.URL.revokeObjectURL(url);
-        } catch (err) {
-            alert('Failed to download report. Please try again.');
+        } catch {
+            // toast is handled by parent via onError prop
         }
     };
 
@@ -133,6 +129,8 @@ export default function CollaborativeChat() {
     const theme           = useTheme();
     const messagesEnd     = useRef(null);
     const globalSocketRef = useSocket();
+    const socketReady     = useSocketReady();
+    const selectedIdRef   = useRef(null);
 
     const user         = JSON.parse(localStorage.getItem("medvid_user") || "{}");
     const isConsultant = user.role === 'Consultant';
@@ -147,10 +145,20 @@ export default function CollaborativeChat() {
     const [loadingMessages, setLoadingMessages] = useState(false);
     const [error,           setError]           = useState(null);
     const [searchQuery,     setSearchQuery]     = useState("");
+    const [clearDialog,     setClearDialog]     = useState(false);
+    const [toast,           setToast]           = useState({ open: false, message: '', severity: 'success' });
+    const [shareCaseDialog, setShareCaseDialog] = useState(false);
+    const [caseList,        setCaseList]        = useState([]);
+    const [loadingCases,    setLoadingCases]    = useState(false);
+    const [sendingCase,     setSendingCase]     = useState(false);
+    const showToast = (message, severity = 'success') => setToast({ open: true, message, severity });
+    const closeToast = () => setToast(t => ({ ...t, open: false }));
     const { clearUnread } = useNotifications();
     useEffect(() => {
      clearUnread();
     }, [clearUnread]);
+
+    useEffect(() => { selectedIdRef.current = selectedId; }, [selectedId]);
 
     // ── Socket listeners ───────────────────────────────────────────────
     useEffect(() => {
@@ -158,20 +166,37 @@ export default function CollaborativeChat() {
         if (!socket) return;
 
         const handleMessage = (data) => {
-            console.log('✅ Message received:', data);
-            setMessages(prev => [...prev, {
-                id:        Date.now(),
-                sender:    data.sender,
-                text:      data.text,
-                time:      data.time,
-                videoId:   data.videoId   || null,
-                clipUrl:   data.clipUrl   || null,
-                reportUrl: data.reportUrl || null,
-            }]);
+            const fromSelected = data.senderId
+                ? String(data.senderId) === String(selectedIdRef.current)
+                : true; // fallback: no senderId, treat as current contact
+
+            if (fromSelected) {
+                setMessages(prev => [...prev, {
+                    id:        Date.now(),
+                    sender:    data.sender,
+                    text:      data.text,
+                    time:      data.time,
+                    videoId:   data.videoId   || null,
+                    clipUrl:   data.clipUrl   || null,
+                    reportUrl: data.reportUrl || null,
+                }]);
+            }
+
+            // Keep contact list fresh: last message preview + unread count
+            if (data.senderId) {
+                setContactList(prev => prev.map(c =>
+                    String(c.id) === String(data.senderId)
+                        ? {
+                            ...c,
+                            lastMessage: data.text,
+                            unread: fromSelected ? c.unread : (c.unread || 0) + 1,
+                          }
+                        : c
+                ));
+            }
         };
 
         const handleOnlineUsers = (users) => {
-            console.log('👥 Online users updated:', users);
             setOnlineUsers(users.map(String));
         };
 
@@ -183,7 +208,7 @@ export default function CollaborativeChat() {
             socket.off('receive_message', handleMessage);
             socket.off('online_users',    handleOnlineUsers);
         };
-    }, [globalSocketRef]);
+    }, [globalSocketRef, socketReady]);
 
     // ── Auto scroll ────────────────────────────────────────────────────
     useEffect(() => {
@@ -223,7 +248,12 @@ export default function CollaborativeChat() {
     }, []);
 
     useEffect(() => {
-        if (selectedId) fetchMessages(selectedId);
+        if (selectedId) {
+            fetchMessages(selectedId);
+            setContactList(prev => prev.map(c =>
+                c.id === selectedId ? { ...c, unread: 0 } : c
+            ));
+        }
     }, [selectedId, fetchMessages]);
 
     // ── Send message ───────────────────────────────────────────────────
@@ -236,11 +266,12 @@ export default function CollaborativeChat() {
             id:     Date.now(),
             sender: isConsultant ? 'Consultant' : 'Doctor',
             text,
-            time:   new Date().toLocaleTimeString([], {
-                hour: '2-digit', minute: '2-digit'
-            }),
+            time:   new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         };
         setMessages(prev => [...prev, optimistic]);
+        setContactList(prev => prev.map(c =>
+            c.id === selectedId ? { ...c, lastMessage: text } : c
+        ));
 
         try {
             await sendChatMessage(selectedId, text);
@@ -251,25 +282,71 @@ export default function CollaborativeChat() {
 
     // ── Clear chat ─────────────────────────────────────────────────────
     const clearChat = async () => {
-        if (!selectedId) return;
-        if (!window.confirm('Delete all messages in this chat?')) return;
         try {
             await api.delete(`/chat/${selectedId}/clear`);
             setMessages([]);
-        } catch (err) {
-            console.error('Clear chat failed:', err);
+            setClearDialog(false);
+            showToast('Chat cleared.');
+        } catch {
+            showToast('Failed to clear chat.', 'error');
         }
     };
 
     // ── Share case ─────────────────────────────────────────────────────
-    const handleShareCase = () => {
+    const handleShareCase = async () => {
         if (!selectedId) return;
-        const recentVideoId = localStorage.getItem('lastAnalyzedVideoId');
-        setInput(
-            recentVideoId
-                ? `I am sharing Case ID: ${recentVideoId} for your review. Please check the AI analysis report.`
-                : 'I would like to share a case for your expert consultation.'
-        );
+
+        if (isConsultant) {
+            setInput('I have reviewed the case findings. Please let me know if you need further consultation or additional information.');
+            return;
+        }
+
+        setShareCaseDialog(true);
+        setLoadingCases(true);
+        try {
+            const res = await getHistory({ pageSize: 50 });
+            setCaseList(res.data.items || []);
+        } catch {
+            setCaseList([]);
+        } finally {
+            setLoadingCases(false);
+        }
+    };
+
+    const handleCaseSelect = async (caseItem) => {
+        setShareCaseDialog(false);
+        setSendingCase(true);
+        try {
+            const res    = await getResults(String(caseItem.videoId));
+            const result = res.data;
+
+            const openingMessage =
+                `CASE REFERRAL REQUEST\n\n` +
+                `Patient: ${result.patientName}\n` +
+                `Age: ${result.patientAge} | Gender: ${result.patientGender}\n\n` +
+                `AI Finding: ${result.detections?.[0]?.type || 'N/A'}\n` +
+                `Severity: ${result.topSeverity}\n` +
+                `Confidence: ${((result.detections?.[0]?.confidence || 0) * 100).toFixed(1)}%\n\n` +
+                `Summary: ${result.reportSummary}\n\n` +
+                `Case ID: ${result.videoId}`;
+
+            await api.post('/chat/start', {
+                consultantId: selectedId,
+                videoId:      String(result.videoId),
+                clipUrl:      result.clipUrl || null,
+                message:      openingMessage,
+            });
+
+            await fetchMessages(selectedId);
+            setContactList(prev => prev.map(c =>
+                c.id === selectedId ? { ...c, lastMessage: 'CASE REFERRAL REQUEST' } : c
+            ));
+            showToast('Case shared successfully.');
+        } catch {
+            showToast('Failed to share case. Please try again.', 'error');
+        } finally {
+            setSendingCase(false);
+        }
     };
 
     // ── Helpers ────────────────────────────────────────────────────────
@@ -320,7 +397,11 @@ export default function CollaborativeChat() {
                                 placeholder="Search..."
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
-                                sx={{ mt: 1, bgcolor: 'white', borderRadius: 1 }}
+                                sx={{
+                                    mt: 1, bgcolor: 'white', borderRadius: 1,
+                                    '& .MuiInputBase-input': { color: '#2E2E2E' },
+                                    '& .MuiInputBase-input::placeholder': { color: 'gray', opacity: 1 },
+                                }}
                                 InputProps={{
                                     startAdornment: <Search sx={{ mr: 1, color: 'gray' }} />
                                 }}
@@ -340,6 +421,7 @@ export default function CollaborativeChat() {
                         ) : (
                             <List sx={{
                                 overflowY: 'auto',
+                                overflowX: 'hidden',
                                 height: 'calc(100% - 110px)',
                                 p: 0
                             }}>
@@ -452,29 +534,21 @@ export default function CollaborativeChat() {
                             <Box display="flex" gap={1}>
                                 <Button
                                     size="small" variant="outlined"
-                                    startIcon={<Share />}
+                                    startIcon={sendingCase ? <CircularProgress size={14} sx={{ color: accentColor }} /> : <Share />}
                                     onClick={handleShareCase}
+                                    disabled={sendingCase}
                                     sx={{ color: accentColor, borderColor: accentColor + '60' }}
                                 >
-                                    Share Case
+                                    {sendingCase ? 'Sharing...' : 'Share Case'}
                                 </Button>
                                 <Button
                                     size="small" variant="outlined"
                                     startIcon={<DeleteOutline />}
-                                    onClick={clearChat}
+                                    onClick={() => setClearDialog(true)}
                                     sx={{ color: 'error.main', borderColor: '#f4433660' }}
                                 >
                                     Clear Chat
                                 </Button>
-                                {isConsultant && (
-                                    <Button
-                                        size="small" variant="contained"
-                                        color="success"
-                                        startIcon={<AssignmentTurnedIn />}
-                                    >
-                                        Verify
-                                    </Button>
-                                )}
                             </Box>
                         </Box>
                     </Paper>
@@ -558,6 +632,73 @@ export default function CollaborativeChat() {
                     />
                 </Box>
             </Box>
+
+            {/* Share Case Dialog (Doctor only) */}
+            <Dialog open={shareCaseDialog} onClose={() => setShareCaseDialog(false)} maxWidth="sm" fullWidth>
+                <DialogTitle sx={{ color: accentColor }}>Select a Case to Share</DialogTitle>
+                <DialogContent>
+                    {loadingCases ? (
+                        <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
+                            <CircularProgress sx={{ color: accentColor }} />
+                        </Box>
+                    ) : caseList.length === 0 ? (
+                        <Typography color="text.secondary" sx={{ p: 1 }}>
+                            No analyses found. Run an analysis first.
+                        </Typography>
+                    ) : (
+                        <List sx={{ pt: 0 }}>
+                            {caseList.map((c) => (
+                                <ListItem
+                                    key={c.videoId}
+                                    button
+                                    onClick={() => handleCaseSelect(c)}
+                                    sx={{
+                                        borderRadius: '8px', mb: 0.5,
+                                        '&:hover': { bgcolor: accentColor + '15' }
+                                    }}
+                                >
+                                    <ListItemAvatar>
+                                        <Avatar sx={{
+                                            bgcolor: c.topSeverity === 'High'
+                                                ? 'error.main'
+                                                : c.topSeverity === 'Medium'
+                                                    ? 'warning.main'
+                                                    : 'success.main'
+                                        }}>
+                                            {c.patientName?.[0]?.toUpperCase()}
+                                        </Avatar>
+                                    </ListItemAvatar>
+                                    <ListItemText
+                                        primary={<Typography fontWeight="bold">{c.patientName}</Typography>}
+                                        secondary={`Severity: ${c.topSeverity} · ${new Date(c.uploadedAt).toLocaleDateString()}`}
+                                    />
+                                </ListItem>
+                            ))}
+                        </List>
+                    )}
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setShareCaseDialog(false)}>Cancel</Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* Clear Chat Dialog */}
+            <Dialog open={clearDialog} onClose={() => setClearDialog(false)}>
+                <DialogTitle sx={{ color: 'error.main' }}>Clear Chat</DialogTitle>
+                <DialogContent>
+                    <Typography>Delete all messages with <strong>{currentContact.name || 'this contact'}</strong>? This cannot be undone.</Typography>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setClearDialog(false)}>Cancel</Button>
+                    <Button onClick={clearChat} variant="contained" color="error" startIcon={<DeleteOutline />}>Delete</Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* Toast */}
+            <Snackbar open={toast.open} autoHideDuration={3000} onClose={closeToast} anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}>
+                <Alert onClose={closeToast} severity={toast.severity} sx={{ width: '100%' }}>{toast.message}</Alert>
+            </Snackbar>
+
         </Container>
     );
 }

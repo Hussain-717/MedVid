@@ -6,6 +6,7 @@ import {
 import { useNavigate, Link } from "react-router-dom";
 import { Science, VpnKey, Person, BusinessCenter } from "@mui/icons-material";
 import { loginUser } from "../services/api";
+import { useSocket } from "../App";
 
 const LoginForm = ({ loginType, form, change, submit, loading, error, inputStyle, isConsultant = false }) => {
   const accentColor = isConsultant ? '#FF7F50' : '#64FFDA';
@@ -70,7 +71,8 @@ export default function Login() {
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
   const [loginType, setLoginType] = useState('User');
-  const navigate = useNavigate();
+  const navigate   = useNavigate();
+  const socketRef  = useSocket();
 
   const change = (k) => (e) => {
     const val = k === "remember" ? e.target.checked : e.target.value;
@@ -107,6 +109,11 @@ export default function Login() {
       const token = data.token;
       localStorage.setItem("medvid_token", token);
       localStorage.setItem("medvid_user", JSON.stringify(user));
+
+      const myId = user.id || user._id;
+      if (myId && socketRef?.current?.connected) {
+          socketRef.current.emit('user_connected', String(myId));
+      }
 
       if (userRole === 'Consultant') {
         localStorage.setItem("medvid_admin_token", token);

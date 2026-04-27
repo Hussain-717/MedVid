@@ -114,7 +114,7 @@ def create_heatmap_clip(
         # Try ffmpeg first (best quality + browser compat)
         try:
             cmd = [
-                r'C:\Users\saliq\Downloads\ffmpeg\ffmpeg\bin\ffmpeg.exe', '-y',  # ✅ full path
+                'ffmpeg', '-y',
                 '-i', temp_avi,
                 '-vcodec', 'libx264',
                 '-acodec', 'aac',

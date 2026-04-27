@@ -13,10 +13,13 @@ import {
     Person, AccessTime, CheckCircle, Warning
 } from '@mui/icons-material';
 import api from '../services/api';
+import { useSocket, useSocketReady } from '../App';
 
 export default function ReviewQueue() {
-    const theme  = useTheme();
-    const ORANGE = '#FF7F50';
+    const theme       = useTheme();
+    const ORANGE      = '#FF7F50';
+    const socketRef   = useSocket();
+    const socketReady = useSocketReady();
 
     const [queue,        setQueue]        = useState([]);
     const [loading,      setLoading]      = useState(true);
@@ -25,8 +28,10 @@ export default function ReviewQueue() {
     const [selectedCase, setSelectedCase] = useState(null);
     const [isRejecting,  setIsRejecting]  = useState(false);
     const [rejectReason, setRejectReason] = useState('');
-    const [submitting,   setSubmitting]   = useState(false);
-    const [snackbar,     setSnackbar]     = useState({ open: false, message: '', severity: 'success' });
+    const [submitting,      setSubmitting]      = useState(false);
+    const [snackbar,        setSnackbar]        = useState({ open: false, message: '', severity: 'success' });
+    const [originalVideoUrl, setOriginalVideoUrl] = useState(null);
+    const [loadingOriginal,  setLoadingOriginal]  = useState(false);
 
     const fetchQueue = useCallback(async () => {
         setLoading(true);
@@ -42,11 +47,54 @@ export default function ReviewQueue() {
 
     useEffect(() => { fetchQueue(); }, [fetchQueue]);
 
+    // Auto-refresh queue when a new case is shared via socket
+    useEffect(() => {
+        const socket = socketRef?.current;
+        if (!socket || !socketReady) return;
+
+        const handleNewReferral = (data) => {
+            if (data.videoId) fetchQueue();
+        };
+
+        socket.on('receive_message', handleNewReferral);
+        return () => socket.off('receive_message', handleNewReferral);
+    }, [socketRef, socketReady, fetchQueue]);
+
+    // Fetch original video as a blob when modal opens for a no-detection case
+    useEffect(() => {
+        if (!open || !selectedCase || selectedCase.clipUrl) return;
+
+        let objectUrl = null;
+        let cancelled = false;
+        setLoadingOriginal(true);
+
+        const token = localStorage.getItem('medvid_token');
+        fetch(`http://localhost:5000/api/consultant/video/${selectedCase.videoId}`, {
+            headers: { Authorization: `Bearer ${token}` }
+        })
+        .then(r => { if (!r.ok) throw new Error('failed'); return r.blob(); })
+        .then(blob => {
+            if (!cancelled) {
+                objectUrl = URL.createObjectURL(blob);
+                setOriginalVideoUrl(objectUrl);
+            }
+        })
+        .catch((err) => { console.error('Original video fetch failed:', err); })
+        .finally(() => { if (!cancelled) setLoadingOriginal(false); });
+
+        return () => {
+            cancelled = true;
+            if (objectUrl) URL.revokeObjectURL(objectUrl);
+        };
+    }, [open, selectedCase?.videoId]);
+
     const handleOpen = (c) => {
         setSelectedCase(c);
         setOpen(true);
         setIsRejecting(false);
         setRejectReason('');
+        setOriginalVideoUrl(null);
+        setLoadingOriginal(false);
     };
 
     const handleClose = () => {
@@ -54,6 +102,8 @@ export default function ReviewQueue() {
         setIsRejecting(false);
         setRejectReason('');
         setSelectedCase(null);
+        setOriginalVideoUrl(prev => { if (prev) URL.revokeObjectURL(prev); return null; });
+        setLoadingOriginal(false);
     };
 
     const handleVerify = async () => {
@@ -433,11 +483,11 @@ export default function ReviewQueue() {
                                     {/* ── RIGHT column ── */}
                                     <Box sx={{ p: 2.5, display: 'flex', flexDirection: 'column', gap: 2 }}>
 
-                                        {/* Heatmap Video */}
+                                        {/* Heatmap / Original Video */}
                                         <Box>
                                             <Typography variant="caption" fontWeight={700} color="text.secondary"
                                                 display="block" mb={1} letterSpacing={0.5}>
-                                                HEATMAP VIDEO CLIP
+                                                {selectedCase.clipUrl ? 'HEATMAP VIDEO CLIP' : 'ORIGINAL VIDEO'}
                                             </Typography>
 
                                             {selectedCase.clipUrl ? (
@@ -477,6 +527,29 @@ export default function ReviewQueue() {
                                                         </Typography>
                                                     </Box>
                                                 </>
+                                            ) : loadingOriginal ? (
+                                                <Box sx={{
+                                                    width: '100%', height: 160,
+                                                    bgcolor: alpha('#000', 0.15), borderRadius: '10px',
+                                                    border: `1.5px dashed ${alpha(ORANGE, 0.25)}`,
+                                                    display: 'flex', alignItems: 'center', justifyContent: 'center'
+                                                }}>
+                                                    <CircularProgress size={28} sx={{ color: ORANGE }} />
+                                                </Box>
+                                            ) : originalVideoUrl ? (
+                                                <video
+                                                    key={originalVideoUrl}
+                                                    controls width="100%"
+                                                    style={{
+                                                        borderRadius: '10px',
+                                                        backgroundColor: '#0a0a0a',
+                                                        border: `1.5px solid ${alpha(ORANGE, 0.4)}`,
+                                                        display: 'block',
+                                                        maxHeight: '260px'
+                                                    }}
+                                                >
+                                                    <source src={originalVideoUrl} type="video/mp4" />
+                                                </video>
                                             ) : (
                                                 <Box sx={{
                                                     width: '100%', height: 160,
@@ -487,7 +560,7 @@ export default function ReviewQueue() {
                                                 }}>
                                                     <VideoCameraBack sx={{ fontSize: 32, color: alpha(ORANGE, 0.3), mb: 0.5 }} />
                                                     <Typography variant="caption" color="text.secondary">
-                                                        No heatmap clip for this case
+                                                        Video unavailable
                                                     </Typography>
                                                 </Box>
                                             )}

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+﻿import React, { useState, useEffect } from "react";
 import {
     Box, Typography, useTheme, Container, Paper, CircularProgress,
     Alert, Button, Grid, Chip, IconButton, Divider,
@@ -6,19 +6,19 @@ import {
     Dialog, DialogTitle, DialogContent, DialogActions,
     List, ListItem, ListItemAvatar, ListItemText,
     Avatar, RadioGroup, FormControlLabel, Radio,
-    Snackbar
+    Snackbar, Tooltip
 } from '@mui/material';
 import {
     Report as ReportIcon, ArrowBack, Download, Refresh,
     AccessTime, Videocam, Visibility, Healing, Speed,
     ChatBubbleOutline, PersonSearch, Wc, Cake, Badge,
-    VideoFile, CalendarMonth, CheckCircle, HourglassTop
+    VideoFile, CalendarMonth, CheckCircle, HourglassTop, VideoLibrary
 } from '@mui/icons-material';
 import { useNavigate, Link, useParams } from "react-router-dom";
-import { getResults, reRunAnalysis, exportReport } from "../services/api";
+import { getResults, reRunAnalysis, exportReport, downloadVideo } from "../services/api";
 import api from "../services/api";
 
-// ── Timestamp Formatter ────────────────────────────────────────────────────────
+// â”€â”€ Timestamp Formatter â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const formatTimestamp = (seconds) => {
     if (seconds === undefined || seconds === null) return 'N/A';
     const totalSecs = Math.floor(seconds);
@@ -27,7 +27,7 @@ const formatTimestamp = (seconds) => {
     return `${mins}:${String(secs).padStart(2, '0')} (${totalSecs}s)`;
 };
 
-// ── Severity Chip ──────────────────────────────────────────────────────────────
+// â”€â”€ Severity Chip â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const SeverityChip = ({ severity }) => {
     const map = {
         high:   { color: 'error',   label: 'High'   },
@@ -39,7 +39,7 @@ const SeverityChip = ({ severity }) => {
     return <Chip label={found.label} color={found.color} size="small" sx={{ fontWeight: 'bold' }} />;
 };
 
-// ── Info Card ──────────────────────────────────────────────────────────────────
+// â”€â”€ Info Card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const InfoCard = ({ label, value, accentColor, mono }) => (
     <Box>
         <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase', letterSpacing: 0.5, fontSize: '0.68rem' }}>
@@ -55,7 +55,7 @@ const InfoCard = ({ label, value, accentColor, mono }) => (
     </Box>
 );
 
-// ── Main Component ─────────────────────────────────────────────────────────────
+// â”€â”€ Main Component â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 export default function Results() {
     const { videoId }  = useParams();
     const navigate     = useNavigate();
@@ -73,14 +73,14 @@ export default function Results() {
     const showToast = (message, severity = 'success') => setToast({ open: true, message, severity });
     const closeToast = () => setToast(t => ({ ...t, open: false }));
 
-    // ── Consult Modal State ────────────────────────────────────────────────────
+    // â”€â”€ Consult Modal State â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const [consultModal,    setConsultModal]    = useState(false);
     const [consultants,     setConsultants]     = useState([]);
     const [selectedConsult, setSelectedConsult] = useState('');
     const [consultLoading,  setConsultLoading]  = useState(false);
     const [consultSending,  setConsultSending]  = useState(false);
 
-    // ── Fetch Results ──────────────────────────────────────────────────────────
+    // â”€â”€ Fetch Results â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const fetchResult = async () => {
         setLoading(true);
         setError(null);
@@ -98,12 +98,12 @@ export default function Results() {
         if (videoId) fetchResult();
     }, [videoId]);
 
-    // ── Actions ────────────────────────────────────────────────────────────────
+    // â”€â”€ Actions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const handleReRun = async () => {
         setReRunning(true);
         try {
             await reRunAnalysis(videoId);
-            showToast('Analysis re-queued. Redirecting to history…');
+            showToast('Analysis re-queued. Redirecting to historyâ€¦');
             setTimeout(() => navigate('/history'), 1500);
         } catch {
             showToast('Failed to re-run analysis.', 'error');
@@ -124,7 +124,7 @@ export default function Results() {
         }
     };
 
-    // ── Open Consult Modal ─────────────────────────────────────────────────────
+    // â”€â”€ Open Consult Modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const handleOpenConsult = async () => {
         setConsultModal(true);
         setConsultLoading(true);
@@ -140,7 +140,7 @@ export default function Results() {
         }
     };
 
-    // ── Initiate Chat ──────────────────────────────────────────────────────────
+    // â”€â”€ Initiate Chat â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const handleInitiateChat = async () => {
         if (!selectedConsult || !result) return;
         setConsultSending(true);
@@ -176,7 +176,7 @@ export default function Results() {
         }
     };
 
-    // ── Loading / Error States ─────────────────────────────────────────────────
+    // â”€â”€ Loading / Error States â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     if (loading) return (
         <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', mt: 10 }}>
             <CircularProgress sx={{ color: accentColor }} />
@@ -200,17 +200,17 @@ export default function Results() {
     return (
         <Container maxWidth="xl" sx={{ p: 3 }}>
 
-            {/* ── Title ─────────────────────────────────────────────────────── */}
+            {/* â”€â”€ Title â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
             <Typography variant="h4" fontWeight="bold" mb={3} sx={{ color: theme.palette.text.primary }}>
                 <ReportIcon sx={{ mr: 1, fontSize: 36, verticalAlign: 'middle', color: accentColor }} />
                 Analysis Report
             </Typography>
 
-            {/* ── 1. Patient & Case Info ────────────────────────────────────── */}
+            {/* â”€â”€ 1. Patient & Case Info â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
             <Paper elevation={6} sx={{ mb: 4, borderRadius: 3, overflow: 'hidden', border: `1px solid ${accentColor}25` }}>
                 <Grid container>
 
-                    {/* Left panel — identity */}
+                    {/* Left panel â€” identity */}
                     <Grid item xs={12} md={3} sx={{
                         background: `linear-gradient(160deg, ${accentColor}22 0%, ${accentColor}08 100%)`,
                         borderRight: { md: `1px solid ${accentColor}20` },
@@ -243,7 +243,7 @@ export default function Results() {
                         />
                     </Grid>
 
-                    {/* Right panel — case details */}
+                    {/* Right panel â€” case details */}
                     <Grid item xs={12} md={9}>
                         <Box sx={{ p: 3 }}>
                             <Typography variant="overline" sx={{ color: accentColor, letterSpacing: 2, fontWeight: 'bold', display: 'block', mb: 2 }}>
@@ -291,7 +291,7 @@ export default function Results() {
                 </Grid>
             </Paper>
 
-            {/* ── 2. Summary + Actions ─────────────────────────────────────── */}
+            {/* â”€â”€ 2. Summary + Actions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
             <Grid container spacing={4} mb={4}>
 
                 <Grid item xs={12} md={8}>
@@ -320,7 +320,7 @@ export default function Results() {
                     </Paper>
                 </Grid>
 
-                {/* ── Actions Panel ──────────────────────────────────────────── */}
+                {/* â”€â”€ Actions Panel â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
                 <Grid item xs={12} md={4}>
                     <Paper elevation={4} sx={{
                         p: 3, height: '100%',
@@ -337,7 +337,7 @@ export default function Results() {
                             {exporting ? 'Preparing...' : 'Download Report (PDF)'}
                         </Button>
 
-                        {/* ✅ Consult Specialist Button */}
+                        {/* âœ… Consult Specialist Button */}
                         <Button
                             variant="contained"
                             startIcon={<ChatBubbleOutline />}
@@ -369,7 +369,7 @@ export default function Results() {
                 </Grid>
             </Grid>
 
-            {/* ── 3. Video Review ───────────────────────────────────────────── */}
+            {/* â”€â”€ 3. Video Review â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
             <Typography variant="h5" fontWeight="bold" mb={2}>
                 Video Review
             </Typography>
@@ -378,7 +378,7 @@ export default function Results() {
                     <Box>
                         <Alert severity="warning" sx={{ mb: 2, borderRadius: 1 }}>
                             Showing <strong>{formatTimestamp(result.detections[0]?.time)}</strong> detection
-                            window — red heatmap highlights the suspicious region detected by AI.
+                            window, red heatmap highlights the suspicious region detected by AI.
                         </Alert>
                         <video
                             key={result.clipUrl}
@@ -415,13 +415,13 @@ export default function Results() {
                         <Typography color="text.secondary" mt={1}>
                             {result.totalDetections > 0
                                 ? 'Heatmap clip not available for this case'
-                                : 'No detections — no clip generated'}
+                                : 'No detections - no clip generated'}
                         </Typography>
                     </Box>
                 )}
             </Paper>
 
-            {/* ── 4. Detections Table ───────────────────────────────────────── */}
+            {/* â”€â”€ 4. Detections Table â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
             <Typography variant="h5" fontWeight="bold" mb={2}>
                 Detailed AI Detections ({totalDetections})
             </Typography>
@@ -477,7 +477,7 @@ export default function Results() {
                                             {((detection.confidence || 0) * 100).toFixed(1)}%
                                         </Typography>
                                     </TableCell>
-                                    <TableCell align="center">—</TableCell>
+                                    <TableCell align="center"><Tooltip title="Download Video"><IconButton size="small" sx={{ color: accentColor }} onClick={() => downloadVideo(videoId, result.filename)}><VideoLibrary fontSize="small" /></IconButton></Tooltip></TableCell>
                                 </TableRow>
                             ))}
                         </TableBody>
@@ -507,10 +507,10 @@ export default function Results() {
                                     sx={{ minWidth: 110, fontWeight: 'bold' }}
                                 />
                                 <Typography variant="body2" sx={{ color: theme.palette.text.primary }}>
-                                    <strong>{d.type || 'Finding'}</strong> detected in{' '}
+                                    <strong>{d.type || 'Finding'}</strong> in{' '}
                                     <strong>{d.location || 'GI Tract'}</strong> with{' '}
                                     <strong>{d.severity || 'N/A'}</strong> severity
-                                    {' '}— Confidence:{' '}
+                                    {' '}Confidence:{' '}
                                     <strong style={{ color: accentColor }}>
                                         {((d.confidence || 0) * 100).toFixed(1)}%
                                     </strong>
@@ -528,7 +528,7 @@ export default function Results() {
 
             <Divider sx={{ my: 2 }} />
 
-            {/* ── Consult Specialist Modal ──────────────────────────────────── */}
+            {/* â”€â”€ Consult Specialist Modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
             <Dialog
                 open={consultModal}
                 onClose={() => !consultSending && setConsultModal(false)}
@@ -554,7 +554,7 @@ export default function Results() {
                             <strong>Patient:</strong> {result?.patientName} | Age: {result?.patientAge} | {result?.patientGender}
                         </Typography>
                         <Typography variant="body2" color="text.secondary">
-                            <strong>Finding:</strong> {result?.topSeverity} severity — {result?.detections?.[0]?.type || 'N/A'}
+                            <strong>Finding:</strong> {result?.topSeverity} severity â€” {result?.detections?.[0]?.type || 'N/A'}
                         </Typography>
                         <Typography variant="body2" color="text.secondary">
                             <strong>Confidence:</strong> {((result?.detections?.[0]?.confidence || 0) * 100).toFixed(1)}%
@@ -650,7 +650,7 @@ export default function Results() {
                 </DialogActions>
             </Dialog>
 
-            {/* ── Toast ───────────────────────────────────────────────── */}
+            {/* â”€â”€ Toast â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
             <Snackbar open={toast.open} autoHideDuration={4000} onClose={closeToast} anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}>
                 <Alert onClose={closeToast} severity={toast.severity} sx={{ width: '100%' }}>
                     {toast.message}
