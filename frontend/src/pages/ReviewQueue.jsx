@@ -68,18 +68,15 @@ export default function ReviewQueue() {
         let cancelled = false;
         setLoadingOriginal(true);
 
-        const token = localStorage.getItem('medvid_token');
-        fetch(`http://localhost:5000/api/consultant/video/${selectedCase.videoId}`, {
-            headers: { Authorization: `Bearer ${token}` }
-        })
-        .then(r => { if (!r.ok) throw new Error('failed'); return r.blob(); })
-        .then(blob => {
+        api.get(`/consultant/video/${selectedCase.videoId}`, { responseType: 'arraybuffer' })
+        .then(response => {
             if (!cancelled) {
+                const blob = new Blob([response.data], { type: 'video/mp4' });
                 objectUrl = URL.createObjectURL(blob);
                 setOriginalVideoUrl(objectUrl);
             }
         })
-        .catch((err) => { console.error('Original video fetch failed:', err); })
+        .catch(() => {})
         .finally(() => { if (!cancelled) setLoadingOriginal(false); });
 
         return () => {

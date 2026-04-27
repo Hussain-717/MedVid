@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
     Container, Typography, Box, Paper, Button, Grid,
-    useTheme, alpha, Divider, Stack, CircularProgress, Chip
+    useTheme, alpha, Divider, Stack, CircularProgress, Chip, Alert
 } from '@mui/material';
 import {
     History, Security, Chat,
@@ -20,15 +20,17 @@ export default function ConsDashboard() {
 
     const [stats,   setStats]   = useState(null);
     const [loading, setLoading] = useState(true);
+    const [error,   setError]   = useState(null);
 
     useEffect(() => {
         const fetchStats = async () => {
             setLoading(true);
+            setError(null);
             try {
                 const response = await api.get('/consultant/stats');
                 setStats(response.data);
-            } catch (err) {
-                console.error('Failed to load consultant stats:', err);
+            } catch {
+                setError('Failed to load dashboard stats. Please refresh.');
             } finally {
                 setLoading(false);
             }
@@ -73,6 +75,10 @@ export default function ConsDashboard() {
                     {stats && ` You have ${stats.pending} case(s) awaiting your review.`}
                 </Typography>
             </Box>
+
+            {error && (
+                <Alert severity="error" sx={{ mb: 3, borderRadius: '12px' }}>{error}</Alert>
+            )}
 
             {/* ── Stats Cards ─────────────────────────────────────── */}
             <Grid container spacing={3} sx={{ mb: 5 }}>

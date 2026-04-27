@@ -405,6 +405,39 @@ const streamVideoForConsultant = async (req, res) => {
     }
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/consultant/audit-logs
+// Returns audit log entries for the logged-in consultant
+// ─────────────────────────────────────────────────────────────────────────────
+const getAuditLogs = async (req, res) => {
+    try {
+        const logs = await AuditLog.find({ userId: req.user.id })
+            .sort({ createdAt: -1 })
+            .limit(200)
+            .populate('userId', 'name email');
+
+        const formatted = logs.map(l => ({
+            id:        l._id,
+            timestamp: new Date(l.createdAt).toLocaleString(),
+            user:      l.userId?.name || 'Unknown',
+            action:    l.action,
+            entity:    l.entity    || '—',
+            entityId:  l.entityId  || '—',
+            details:   l.details   || '',
+            status:    l.status,
+            severity:  l.status === 'failed'  ? 'Warning'
+                     : ['DELETE','REJECT'].includes(l.action) ? 'Warning'
+                     : l.action === 'LOGIN'    ? 'Info'
+                     : 'Info',
+        }));
+
+        res.status(200).json({ total: formatted.length, logs: formatted });
+    } catch (err) {
+        console.error('Audit logs error:', err.message);
+        res.status(500).json({ message: 'Server error fetching audit logs.' });
+    }
+};
+
 // Keep old submitReview for backward compat
 const submitReview = verifyCase;
 
@@ -416,4 +449,5 @@ module.exports = {
     getConsultantList,
     submitReview,
     streamVideoForConsultant,
+    getAuditLogs,
 };

@@ -532,15 +532,17 @@ export default function CollaborativeChat() {
                             </Box>
 
                             <Box display="flex" gap={1}>
-                                <Button
-                                    size="small" variant="outlined"
-                                    startIcon={sendingCase ? <CircularProgress size={14} sx={{ color: accentColor }} /> : <Share />}
-                                    onClick={handleShareCase}
-                                    disabled={sendingCase}
-                                    sx={{ color: accentColor, borderColor: accentColor + '60' }}
-                                >
-                                    {sendingCase ? 'Sharing...' : 'Share Case'}
-                                </Button>
+                                {!isConsultant && (
+                                    <Button
+                                        size="small" variant="outlined"
+                                        startIcon={sendingCase ? <CircularProgress size={14} sx={{ color: accentColor }} /> : <Share />}
+                                        onClick={handleShareCase}
+                                        disabled={sendingCase}
+                                        sx={{ color: accentColor, borderColor: accentColor + '60' }}
+                                    >
+                                        {sendingCase ? 'Sharing...' : 'Share Case'}
+                                    </Button>
+                                )}
                                 <Button
                                     size="small" variant="outlined"
                                     startIcon={<DeleteOutline />}

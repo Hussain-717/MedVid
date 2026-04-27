@@ -1,165 +1,204 @@
-import React, { useState } from 'react';
-import { 
-    Box, Typography, Container, Paper, Table, TableBody, TableCell, 
-    TableContainer, TableHead, TableRow, Chip, Button, IconButton, 
-    TextField, InputAdornment, useTheme, alpha, Tooltip, Stack,
-    Divider // <--- ADD THIS LINE
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+    Box, Typography, Container, Paper, Table, TableBody, TableCell,
+    TableContainer, TableHead, TableRow, Chip, Button, IconButton,
+    TextField, InputAdornment, useTheme, alpha, Stack,
+    Divider, CircularProgress, LinearProgress, Alert
 } from '@mui/material';
-import { 
-    Search, FilterList, Download, History, 
+import {
+    Search, Download, History,
     Security, Info, Warning, Error, Launch,
-    CalendarMonth, FiberManualRecord
+    FiberManualRecord, Refresh
 } from '@mui/icons-material';
-import Sidebar from '../components/Sidebar';
+import api from '../services/api';
 
-const MOCK_LOGS = [
-    { id: 'LOG-1024', timestamp: '2025-12-18 14:30:02', user: 'Dr. Arshad', action: 'Confirmed AI Finding', resource: 'CASE-942', severity: 'Info', ip: '192.168.1.45' },
-    { id: 'LOG-1023', timestamp: '2025-12-18 14:15:22', user: 'Dr. Sarah', action: 'Rejected AI Finding', resource: 'CASE-938', severity: 'Warning', ip: '192.168.1.12' },
-    { id: 'LOG-1022', timestamp: '2025-12-18 13:45:10', user: 'System AI', action: 'New Analysis Generated', resource: 'CASE-945', severity: 'Info', ip: 'Local' },
-    { id: 'LOG-1021', timestamp: '2025-12-18 12:00:00', user: 'Admin', action: 'Data Export Initiated', resource: 'All_Urgent_Cases', severity: 'Critical', ip: '192.168.1.02' },
-    { id: 'LOG-1020', timestamp: '2025-12-18 11:30:45', user: 'Dr. Kevin', action: 'User Login', resource: 'Portal', severity: 'Info', ip: '104.22.11.5' },
-];
+const getSeverityStyle = (severity, theme) => ({
+    Critical: { color: theme.palette.error.main,   bg: alpha(theme.palette.error.main,   0.1), icon: <Error   fontSize="inherit" /> },
+    Warning:  { color: theme.palette.warning.main, bg: alpha(theme.palette.warning.main, 0.1), icon: <Warning fontSize="inherit" /> },
+    Info:     { color: theme.palette.info.main,    bg: alpha(theme.palette.info.main,    0.1), icon: <Info    fontSize="inherit" /> },
+}[severity] || { color: theme.palette.info.main, bg: alpha(theme.palette.info.main, 0.1), icon: <Info fontSize="inherit" /> });
 
 export default function AuditLogs() {
-    const theme = useTheme();
+    const theme       = useTheme();
     const accentColor = '#FF7F50';
-    const [searchTerm, setSearchTerm] = useState("");
 
-    const getSeverityChip = (severity) => {
-        const styles = {
-            Critical: { color: theme.palette.error.main, bg: alpha(theme.palette.error.main, 0.1), icon: <Error fontSize="inherit" /> },
-            Warning: { color: theme.palette.warning.main, bg: alpha(theme.palette.warning.main, 0.1), icon: <Warning fontSize="inherit" /> },
-            Info: { color: theme.palette.info.main, bg: alpha(theme.palette.info.main, 0.1), icon: <Info fontSize="inherit" /> }
-        };
-        const style = styles[severity] || styles.Info;
-        return (
-            <Chip 
-                icon={style.icon}
-                label={severity} 
-                size="small"
-                sx={{ fontWeight: 'bold', color: style.color, bgcolor: style.bg, borderRadius: '4px' }} 
-            />
+    const [logs,       setLogs]       = useState([]);
+    const [loading,    setLoading]    = useState(true);
+    const [error,      setError]      = useState(null);
+    const [searchTerm, setSearchTerm] = useState('');
+
+    const fetchLogs = useCallback(async () => {
+        setLoading(true);
+        setError(null);
+        try {
+            const res = await api.get('/consultant/audit-logs');
+            setLogs(res.data.logs || []);
+        } catch {
+            setError('Failed to load audit logs.');
+        } finally {
+            setLoading(false);
+        }
+    }, []);
+
+    useEffect(() => { fetchLogs(); }, [fetchLogs]);
+
+    const filtered = logs.filter(l =>
+        l.action?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        l.entity?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        l.entityId?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        l.details?.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+
+    const handleExportCSV = () => {
+        const header = 'Timestamp,Action,Entity,Entity ID,Severity,Status,Details';
+        const rows = filtered.map(l =>
+            [l.timestamp, l.action, l.entity, l.entityId, l.severity, l.status, `"${(l.details || '').replace(/"/g, '""')}"`].join(',')
         );
+        const csv  = [header, ...rows].join('\n');
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement('a');
+        a.href     = url;
+        a.download = `audit-logs-${new Date().toISOString().slice(0,10)}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
     };
 
     return (
-        <Box sx={{ display: 'flex', bgcolor: theme.palette.background.default, minHeight: '100vh' }}>
-            <Sidebar />
-            
-            <Box component="main" sx={{ flexGrow: 1, p: { xs: 2, md: 4 }, mt: 8 }}>
-                <Container maxWidth="xl">
-                    
-                    {/* Header */}
-                    <Box sx={{ mb: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
-                        <Box>
-                            <Stack direction="row" spacing={1} alignItems="center">
-                                <Typography variant="h4" sx={{ fontWeight: 800 }}>System Audit Logs</Typography>
-                                <Chip 
-                                    label="LIVE" 
-                                    size="small" 
-                                    icon={<FiberManualRecord sx={{ fontSize: '10px !important', color: '#4caf50' }} />}
-                                    sx={{ bgcolor: alpha('#4caf50', 0.1), color: '#4caf50', fontWeight: 'bold', height: 20 }}
-                                />
-                            </Stack>
-                            <Typography variant="body1" color="text.secondary">Comprehensive trail of all user and system activities</Typography>
-                        </Box>
-                        <Button 
-                            variant="outlined" 
-                            startIcon={<Download />}
-                            sx={{ borderColor: accentColor, color: accentColor, borderRadius: '8px', fontWeight: 'bold', '&:hover': { borderColor: accentColor, bgcolor: alpha(accentColor, 0.05) } }}
-                        >
-                            Export CSV
-                        </Button>
-                    </Box>
+        <Container maxWidth="xl" sx={{ py: 2 }}>
 
-                    {/* Filter Bar with Date Range */}
-                    <Paper 
-                        elevation={0}
-                        sx={{ 
-                            p: 2, mb: 3, borderRadius: '12px', display: 'flex', gap: 2, alignItems: 'center',
-                            bgcolor: theme.palette.background.paper, border: `1px solid ${theme.palette.divider}`
-                        }}
-                    >
-                        <TextField 
-                            size="small" 
-                            variant="outlined" 
-                            placeholder="Search User, Case ID, or IP..."
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                            InputProps={{
-                                startAdornment: (
-                                    <InputAdornment position="start">
-                                        <Search sx={{ color: accentColor }} />
-                                    </InputAdornment>
-                                ),
-                            }}
-                            sx={{ width: 350 }}
+            {/* Header */}
+            <Box sx={{ mb: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+                <Box>
+                    <Stack direction="row" spacing={1} alignItems="center">
+                        <Typography variant="h4" sx={{ fontWeight: 800 }}>Audit Logs</Typography>
+                        <Chip
+                            label="LIVE"
+                            size="small"
+                            icon={<FiberManualRecord sx={{ fontSize: '10px !important', color: '#4caf50' }} />}
+                            sx={{ bgcolor: alpha('#4caf50', 0.1), color: '#4caf50', fontWeight: 'bold', height: 20 }}
                         />
-
-                        <Divider orientation="vertical" flexItem sx={{ mx: 1 }} />
-
-                        <Button 
-                            startIcon={<CalendarMonth />} 
-                            endIcon={<FilterList fontSize="small" />}
-                            sx={{ color: theme.palette.text.primary, fontWeight: 600 }}
-                        >
-                            Dec 01, 2025 - Dec 18, 2025
-                        </Button>
-
-                        <Box sx={{ flexGrow: 1 }} />
-                        
-                        <Typography variant="caption" sx={{ color: 'text.secondary', display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                            <History sx={{ fontSize: 14 }} /> Retention: 90 Days
-                        </Typography>
-                    </Paper>
-
-                    {/* Logs Table */}
-                    <TableContainer 
-                        component={Paper} 
-                        elevation={0}
-                        sx={{ 
-                            borderRadius: '16px', border: `1px solid ${theme.palette.divider}`,
-                            backgroundImage: 'none', bgcolor: theme.palette.background.paper
-                        }}
+                    </Stack>
+                    <Typography variant="body2" color="text.secondary">
+                        Your activity trail — {loading ? '…' : `${filtered.length} entries`}
+                    </Typography>
+                </Box>
+                <Stack direction="row" spacing={1}>
+                    <Button
+                        variant="outlined" startIcon={<Refresh />}
+                        onClick={fetchLogs} disabled={loading}
+                        sx={{ borderColor: alpha(accentColor, 0.5), color: accentColor, borderRadius: '8px' }}
                     >
-                        <Table>
-                            <TableHead sx={{ bgcolor: alpha(accentColor, 0.05) }}>
-                                <TableRow>
-                                    <TableCell sx={{ fontWeight: 'bold', color: theme.palette.text.secondary }}>Timestamp</TableCell>
-                                    <TableCell sx={{ fontWeight: 'bold', color: theme.palette.text.secondary }}>Actor</TableCell>
-                                    <TableCell sx={{ fontWeight: 'bold', color: theme.palette.text.secondary }}>Action</TableCell>
-                                    <TableCell sx={{ fontWeight: 'bold', color: theme.palette.text.secondary }}>Resource</TableCell>
-                                    <TableCell sx={{ fontWeight: 'bold', color: theme.palette.text.secondary }}>Severity</TableCell>
-                                    <TableCell align="right" sx={{ fontWeight: 'bold', color: theme.palette.text.secondary }}>Details</TableCell>
-                                </TableRow>
-                            </TableHead>
-                            <TableBody>
-                                {MOCK_LOGS.map((log) => (
-                                    <TableRow key={log.id} hover sx={{ '&:last-child td, &:last-child th': { border: 0 } }}>
-                                        <TableCell sx={{ whiteSpace: 'nowrap', fontSize: '0.85rem', fontFamily: 'monospace', color: theme.palette.text.secondary }}>
-                                            {log.timestamp}
-                                        </TableCell>
-                                        <TableCell>
-                                            <Typography variant="body2" sx={{ fontWeight: 'bold' }}>{log.user}</Typography>
-                                            <Typography variant="caption" color="text.secondary">{log.ip}</Typography>
-                                        </TableCell>
-                                        <TableCell sx={{ fontWeight: 500 }}>{log.action}</TableCell>
-                                        <TableCell>
-                                            <Chip label={log.resource} size="small" variant="outlined" sx={{ borderRadius: '4px', fontSize: '0.75rem' }} />
-                                        </TableCell>
-                                        <TableCell>{getSeverityChip(log.severity)}</TableCell>
-                                        <TableCell align="right">
-                                            <IconButton size="small" sx={{ color: accentColor, bgcolor: alpha(accentColor, 0.05), '&:hover': { bgcolor: accentColor, color: '#fff' } }}>
-                                                <Launch fontSize="small" />
-                                            </IconButton>
-                                        </TableCell>
-                                    </TableRow>
-                                ))}
-                            </TableBody>
-                        </Table>
-                    </TableContainer>
-                </Container>
+                        Refresh
+                    </Button>
+                    <Button
+                        variant="outlined" startIcon={<Download />}
+                        onClick={handleExportCSV} disabled={loading || filtered.length === 0}
+                        sx={{ borderColor: alpha(accentColor, 0.5), color: accentColor, borderRadius: '8px', fontWeight: 'bold' }}
+                    >
+                        Export CSV
+                    </Button>
+                </Stack>
             </Box>
-        </Box>
+
+            {/* Search bar */}
+            <Paper elevation={0} sx={{
+                p: 2, mb: 3, borderRadius: '12px',
+                display: 'flex', gap: 2, alignItems: 'center',
+                bgcolor: theme.palette.background.paper,
+                border: `1px solid ${theme.palette.divider}`
+            }}>
+                <TextField
+                    size="small" variant="outlined"
+                    placeholder="Search action, entity, or details…"
+                    value={searchTerm}
+                    onChange={e => setSearchTerm(e.target.value)}
+                    InputProps={{
+                        startAdornment: (
+                            <InputAdornment position="start">
+                                <Search sx={{ color: accentColor }} />
+                            </InputAdornment>
+                        ),
+                    }}
+                    sx={{ width: 350 }}
+                />
+                <Divider orientation="vertical" flexItem sx={{ mx: 1 }} />
+                <Box sx={{ flexGrow: 1 }} />
+                <Typography variant="caption" sx={{ color: 'text.secondary', display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                    <History sx={{ fontSize: 14 }} /> Retention: 90 Days
+                </Typography>
+            </Paper>
+
+            {error && (
+                <Alert severity="error" sx={{ mb: 2, borderRadius: '10px' }}>{error}</Alert>
+            )}
+
+            {/* Table */}
+            <TableContainer component={Paper} elevation={0} sx={{
+                borderRadius: '16px',
+                border: `1px solid ${theme.palette.divider}`,
+                bgcolor: theme.palette.background.paper,
+            }}>
+                {loading && <LinearProgress sx={{ borderRadius: '16px 16px 0 0' }} />}
+                <Table>
+                    <TableHead sx={{ bgcolor: alpha(accentColor, 0.05) }}>
+                        <TableRow>
+                            {['Timestamp', 'Action', 'Entity', 'Entity ID', 'Severity', 'Details', ''].map(h => (
+                                <TableCell key={h} sx={{ fontWeight: 'bold', color: theme.palette.text.secondary, fontSize: 12 }}>
+                                    {h}
+                                </TableCell>
+                            ))}
+                        </TableRow>
+                    </TableHead>
+                    <TableBody>
+                        {!loading && filtered.length === 0 && (
+                            <TableRow>
+                                <TableCell colSpan={7} align="center" sx={{ py: 6 }}>
+                                    <Security sx={{ fontSize: 40, opacity: 0.3, mb: 1, color: accentColor }} />
+                                    <Typography variant="body2" color="text.secondary">
+                                        {logs.length === 0 ? 'No activity logged yet.' : 'No matches found.'}
+                                    </Typography>
+                                </TableCell>
+                            </TableRow>
+                        )}
+                        {filtered.map((log) => {
+                            const sev = getSeverityStyle(log.severity, theme);
+                            return (
+                                <TableRow key={String(log.id)} hover sx={{ '&:last-child td': { border: 0 } }}>
+                                    <TableCell sx={{ whiteSpace: 'nowrap', fontSize: '0.82rem', fontFamily: 'monospace', color: theme.palette.text.secondary }}>
+                                        {log.timestamp}
+                                    </TableCell>
+                                    <TableCell sx={{ fontWeight: 600, fontSize: '0.85rem' }}>{log.action}</TableCell>
+                                    <TableCell sx={{ fontSize: '0.85rem' }}>{log.entity}</TableCell>
+                                    <TableCell>
+                                        <Chip label={log.entityId} size="small" variant="outlined"
+                                            sx={{ borderRadius: '4px', fontSize: '0.72rem', maxWidth: 120, overflow: 'hidden' }} />
+                                    </TableCell>
+                                    <TableCell>
+                                        <Chip
+                                            icon={sev.icon} label={log.severity} size="small"
+                                            sx={{ fontWeight: 'bold', color: sev.color, bgcolor: sev.bg, borderRadius: '4px' }}
+                                        />
+                                    </TableCell>
+                                    <TableCell sx={{ fontSize: '0.82rem', color: theme.palette.text.secondary, maxWidth: 260 }}>
+                                        <Typography variant="caption" noWrap title={log.details}>{log.details || '—'}</Typography>
+                                    </TableCell>
+                                    <TableCell align="right">
+                                        <IconButton size="small" sx={{
+                                            color: accentColor, bgcolor: alpha(accentColor, 0.05),
+                                            '&:hover': { bgcolor: accentColor, color: '#fff' }
+                                        }}>
+                                            <Launch fontSize="small" />
+                                        </IconButton>
+                                    </TableCell>
+                                </TableRow>
+                            );
+                        })}
+                    </TableBody>
+                </Table>
+            </TableContainer>
+        </Container>
     );
 }
