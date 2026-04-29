@@ -1,6 +1,7 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const AuditLog = require('../models/AuditLog');
 
 // Helper to generate real JWT token
 const generateToken = (user) => {
@@ -90,9 +91,19 @@ const login = async (req, res) => {
             role:  user.role
         };
 
+        await AuditLog.create({
+            userId:   user._id,
+            action:   'LOGIN',
+            entity:   'User',
+            entityId: String(user._id),
+            details:  `${user.role} logged in: ${user.email}`,
+            ipAddress: req.ip || null,
+            status:   'success',
+        });
+
         res.status(200).json({
             message: 'Login successful.',
-            token: generateToken(user), // ✅ Real JWT now!
+            token: generateToken(user),
             user: safeUser
         });
 
@@ -102,4 +113,22 @@ const login = async (req, res) => {
     }
 };
 
-module.exports = { signup, login };
+// LOGOUT
+const logout = async (req, res) => {
+    try {
+        await AuditLog.create({
+            userId:   req.user.id,
+            action:   'LOGOUT',
+            entity:   'User',
+            entityId: String(req.user.id),
+            details:  `${req.user.role} logged out.`,
+            ipAddress: req.ip || null,
+            status:   'success',
+        });
+    } catch {
+        // don't block logout if logging fails
+    }
+    res.status(200).json({ message: 'Logged out.' });
+};
+
+module.exports = { signup, login, logout };

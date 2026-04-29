@@ -1,7 +1,7 @@
 const express    = require('express');
 const router     = express.Router();
 const rateLimit  = require('express-rate-limit');
-const { signup, login } = require('../controllers/authcontroller');
+const { signup, login, logout } = require('../controllers/authcontroller');
 const { protect } = require('../middleware/authmiddleware');
 
 const loginLimiter = rateLimit({
@@ -23,6 +23,9 @@ const signupLimiter = rateLimit({
 // Public routes
 router.post('/signup', signupLimiter, signup);
 router.post('/login',  loginLimiter,  login);
+
+// Protected routes
+router.post('/logout', protect, logout);
 
 // Protected route example (requires valid JWT)
 router.get('/me', protect, (req, res) => {

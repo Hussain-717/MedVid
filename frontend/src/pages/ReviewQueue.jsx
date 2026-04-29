@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
     Box, Typography, Container, Paper, Table, TableBody, TableCell,
-    TableContainer, TableHead, TableRow, Chip, Button, IconButton,
+    TableContainer, TableHead, TableRow, TablePagination, Chip, Button, IconButton,
     TextField, useTheme, Avatar, alpha,
     Dialog, DialogTitle, DialogContent, DialogActions,
     Divider, Snackbar, Alert, CircularProgress, LinearProgress,
@@ -24,10 +24,14 @@ export default function ReviewQueue() {
     const [queue,        setQueue]        = useState([]);
     const [loading,      setLoading]      = useState(true);
     const [searchTerm,   setSearchTerm]   = useState('');
+    const [statusFilter, setStatusFilter] = useState('all');
+    const [page,         setPage]         = useState(0);
+    const [rowsPerPage,  setRowsPerPage]  = useState(10);
     const [open,         setOpen]         = useState(false);
     const [selectedCase, setSelectedCase] = useState(null);
-    const [isRejecting,  setIsRejecting]  = useState(false);
-    const [rejectReason, setRejectReason] = useState('');
+    const [isRejecting,   setIsRejecting]   = useState(false);
+    const [rejectReason,  setRejectReason]  = useState('');
+    const [verifyNotes,   setVerifyNotes]   = useState('');
     const [submitting,      setSubmitting]      = useState(false);
     const [snackbar,        setSnackbar]        = useState({ open: false, message: '', severity: 'success' });
     const [originalVideoUrl, setOriginalVideoUrl] = useState(null);
@@ -90,6 +94,7 @@ export default function ReviewQueue() {
         setOpen(true);
         setIsRejecting(false);
         setRejectReason('');
+        setVerifyNotes('');
         setOriginalVideoUrl(null);
         setLoadingOriginal(false);
     };
@@ -98,6 +103,7 @@ export default function ReviewQueue() {
         setOpen(false);
         setIsRejecting(false);
         setRejectReason('');
+        setVerifyNotes('');
         setSelectedCase(null);
         setOriginalVideoUrl(prev => { if (prev) URL.revokeObjectURL(prev); return null; });
         setLoadingOriginal(false);
@@ -108,7 +114,7 @@ export default function ReviewQueue() {
         setSubmitting(true);
         try {
             await api.put(`/consultant/review/${selectedCase.videoId}/verify`, {
-                consultantNotes: 'AI findings reviewed and verified as clinically accurate.'
+                consultantNotes: verifyNotes.trim() || undefined
             });
             setQueue(p => p.map(c =>
                 c.videoId === selectedCase.videoId ? { ...c, reviewStatus: 'verified' } : c
@@ -149,11 +155,16 @@ export default function ReviewQueue() {
         rejected: { label: 'Rejected', color: theme.palette.error.main },
     }[s] || { label: 'Pending', color: theme.palette.warning.main });
 
-    const filtered = queue.filter(c =>
-        c.patientName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        String(c.videoId).toLowerCase().includes(searchTerm.toLowerCase()) ||
-        c.doctorName?.toLowerCase().includes(searchTerm.toLowerCase())
-    );
+    const filtered = queue.filter(c => {
+        const matchesSearch =
+            c.patientName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            String(c.videoId).toLowerCase().includes(searchTerm.toLowerCase()) ||
+            c.doctorName?.toLowerCase().includes(searchTerm.toLowerCase());
+        const matchesStatus = statusFilter === 'all' || c.reviewStatus === statusFilter;
+        return matchesSearch && matchesStatus;
+    });
+
+    const paginated = filtered.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
 
     const pendingCount = queue.filter(c => c.reviewStatus === 'pending').length;
 
@@ -202,7 +213,7 @@ export default function ReviewQueue() {
                         fullWidth variant="standard"
                         placeholder="Search patient, case ID, or doctor…"
                         value={searchTerm}
-                        onChange={e => setSearchTerm(e.target.value)}
+                        onChange={e => { setSearchTerm(e.target.value); setPage(0); }}
                         InputProps={{ disableUnderline: true }}
                         sx={{ '& input': { fontSize: 14 } }}
                     />
@@ -218,6 +229,31 @@ export default function ReviewQueue() {
                         {pendingCount} Pending
                     </Typography>
                 </Paper>
+            </Box>
+
+            {/* ── Status Filter ── */}
+            <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
+                {[
+                    { key: 'all',      label: 'All',      count: queue.length },
+                    { key: 'pending',  label: 'Pending',  count: queue.filter(c => c.reviewStatus === 'pending').length },
+                    { key: 'verified', label: 'Verified', count: queue.filter(c => c.reviewStatus === 'verified').length },
+                    { key: 'rejected', label: 'Rejected', count: queue.filter(c => c.reviewStatus === 'rejected').length },
+                ].map(({ key, label, count }) => (
+                    <Chip
+                        key={key}
+                        label={`${label} (${count})`}
+                        onClick={() => { setStatusFilter(key); setPage(0); }}
+                        sx={{
+                            fontWeight: 700,
+                            fontSize: 12,
+                            cursor: 'pointer',
+                            bgcolor: statusFilter === key ? ORANGE : alpha(ORANGE, 0.08),
+                            color:   statusFilter === key ? '#fff'  : ORANGE,
+                            border:  `1px solid ${alpha(ORANGE, statusFilter === key ? 1 : 0.2)}`,
+                            '&:hover': { bgcolor: statusFilter === key ? ORANGE : alpha(ORANGE, 0.15) },
+                        }}
+                    />
+                ))}
             </Box>
 
             {/* ── Table ── */}
@@ -251,7 +287,7 @@ export default function ReviewQueue() {
                                 </TableCell>
                             </TableRow>
                         )}
-                        {filtered.map(row => {
+                        {paginated.map(row => {
                             const ss = statusStyle(row.reviewStatus);
                             const sc = severityColor(row.topSeverity);
                             return (
@@ -341,6 +377,16 @@ export default function ReviewQueue() {
                         })}
                     </TableBody>
                 </Table>
+                <TablePagination
+                    component="div"
+                    count={filtered.length}
+                    page={page}
+                    onPageChange={(_, newPage) => setPage(newPage)}
+                    rowsPerPage={rowsPerPage}
+                    onRowsPerPageChange={e => { setRowsPerPage(parseInt(e.target.value, 10)); setPage(0); }}
+                    rowsPerPageOptions={[5, 10, 25]}
+                    sx={{ borderTop: `1px solid ${theme.palette.divider}` }}
+                />
             </TableContainer>
 
             {/* ══════════════════════════════════════════════════════
@@ -568,12 +614,8 @@ export default function ReviewQueue() {
                                             fullWidth variant="outlined" size="small"
                                             onClick={async () => {
                                                 try {
-                                                    const token = localStorage.getItem('medvid_token');
-                                                    const res = await fetch(selectedCase.reportUrl, {
-                                                        headers: { Authorization: `Bearer ${token}` }
-                                                    });
-                                                    if (!res.ok) throw new Error('failed');
-                                                    const blob = await res.blob();
+                                                    const res = await api.get(`/reports/${selectedCase.videoId}/download`, { responseType: 'blob' });
+                                                    const blob = res.data;
                                                     const url  = URL.createObjectURL(blob);
                                                     const a    = document.createElement('a');
                                                     a.href = url;
@@ -595,6 +637,23 @@ export default function ReviewQueue() {
                                         >
                                             📄 Download Full PDF Report
                                         </Button>
+
+                                        {/* Optional consultant notes */}
+                                        {!isRejecting && selectedCase.reviewStatus === 'pending' && (
+                                            <Box>
+                                                <Typography variant="caption" fontWeight={700}
+                                                    display="block" mb={0.5} letterSpacing={0.5}
+                                                    color="text.secondary">
+                                                    CONSULTANT NOTES (OPTIONAL)
+                                                </Typography>
+                                                <TextField
+                                                    fullWidth size="small" multiline rows={2}
+                                                    placeholder="Add any notes before verifying…"
+                                                    value={verifyNotes}
+                                                    onChange={e => setVerifyNotes(e.target.value)}
+                                                />
+                                            </Box>
+                                        )}
 
                                         {/* Rejection reason textarea — shown inside right col */}
                                         {isRejecting && (

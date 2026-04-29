@@ -78,7 +78,7 @@ const getReviewQueue = async (req, res) => {
                 reportSummary: analysis.reportSummary  || '',
                 confidence:   analysis.detections?.[0]?.confidence || 0,
                 clipUrl:      analysis.clipUrl         || null,
-                reportUrl:    `http://localhost:5000/api/reports/${video._id}/download`,
+                reportUrl:    `/api/reports/${video._id}/download`,
                 reviewStatus: report?.reviewStatus     || 'pending',
                 referredAt:   msg.sentAt,
             };
@@ -163,7 +163,13 @@ const verifyCase = async (req, res) => {
             action:   'VERIFY',
             entity:   'Video',
             entityId: videoId,
-            details:  `Case verified by consultant for video: ${videoId}`,
+            details:  JSON.stringify({
+                patientName:     video?.patientName || 'Unknown',
+                caseId:          videoId,
+                verdict:         'Verified',
+                consultantNotes: consultantNotes || null,
+                clipUrl:         analysis.clipUrl || null,
+            }),
             status:   'success',
         });
 
@@ -246,7 +252,13 @@ const rejectCase = async (req, res) => {
             action:   'REJECT',
             entity:   'Video',
             entityId: videoId,
-            details:  `Case rejected by consultant. Reason: ${rejectionReason}`,
+            details:  JSON.stringify({
+                patientName:     video?.patientName || 'Unknown',
+                caseId:          videoId,
+                verdict:         'Rejected',
+                rejectionReason: rejectionReason,
+                clipUrl:         analysis.clipUrl || null,
+            }),
             status:   'success',
         });
 
@@ -416,6 +428,14 @@ const getAuditLogs = async (req, res) => {
             .limit(200)
             .populate('userId', 'name email');
 
+        const severityMap = {
+            LOGIN:         'Info',
+            LOGOUT:        'Info',
+            VERIFY:        'Success',
+            REJECT:        'Warning',
+            EXPORT_REPORT: 'Info',
+        };
+
         const formatted = logs.map(l => ({
             id:        l._id,
             timestamp: new Date(l.createdAt).toLocaleString(),
@@ -425,10 +445,7 @@ const getAuditLogs = async (req, res) => {
             entityId:  l.entityId  || '—',
             details:   l.details   || '',
             status:    l.status,
-            severity:  l.status === 'failed'  ? 'Warning'
-                     : ['DELETE','REJECT'].includes(l.action) ? 'Warning'
-                     : l.action === 'LOGIN'    ? 'Info'
-                     : 'Info',
+            severity:  l.status === 'failed' ? 'Critical' : (severityMap[l.action] || 'Info'),
         }));
 
         res.status(200).json({ total: formatted.length, logs: formatted });

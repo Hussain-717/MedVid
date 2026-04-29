@@ -13,6 +13,7 @@ import { LightMode, DarkMode, Visibility } from "@mui/icons-material";
 import { ColorModeContext } from "../context/ThemeContext";
 
 import { drawerWidth } from "../constants";
+import api from "../services/api";
 
 
 
@@ -26,14 +27,15 @@ export default function Header({ isAuthenticated = false, handleDrawerToggle = (
 
 
 
-    const logout = () => {
-
+    const logout = async () => {
+        try {
+            await api.post('/auth/logout');
+        } catch {
+            // don't block logout if request fails
+        }
         localStorage.removeItem("medvid_token");
-
         localStorage.removeItem("medvid_user");
-
         navigate("/login");
-
     };
 
 

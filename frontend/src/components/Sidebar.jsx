@@ -12,6 +12,7 @@ import {
 } from "@mui/icons-material";
 import { drawerWidth } from "../constants";
 import { useNotifications } from "../context/NotificationContext";
+import api from "../services/api";
 
 export default function Sidebar({ mobileOpen, handleDrawerToggle }) {
     const theme    = useTheme();
@@ -23,7 +24,12 @@ export default function Sidebar({ mobileOpen, handleDrawerToggle }) {
 
     const { unreadCount, clearUnread } = useNotifications();
 
-    const handleLogout = () => {
+    const handleLogout = async () => {
+        try {
+            await api.post('/auth/logout');
+        } catch {
+            // don't block logout if request fails
+        }
         localStorage.clear();
         navigate('/login');
         window.location.reload();

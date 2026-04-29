@@ -1,9 +1,10 @@
-const PDFDocument = require('pdfkit');
-const Report      = require('../models/Report');
-const Video       = require('../models/Video');
-const Analysis    = require('../models/Analysis');
-const Patient     = require('../models/patient');
-const AuditLog    = require('../models/AuditLog');
+const PDFDocument  = require('pdfkit');
+const Report       = require('../models/Report');
+const Video        = require('../models/Video');
+const Analysis     = require('../models/Analysis');
+const Patient      = require('../models/patient');
+const AuditLog     = require('../models/AuditLog');
+const ChatMessage  = require('../models/ChatMessage');
 
 // ── Helper: format seconds → "0:38 (38s)" ─────────────────────────────────────
 const fmtTime = (s) => {
@@ -141,7 +142,10 @@ const downloadReport = async (req, res) => {
             return res.status(404).json({ message: 'Report data not found.' });
         }
 
-        if (video.uploadedBy.toString() !== req.user.id.toString()) {
+        const isOwner = video.uploadedBy.toString() === req.user.id.toString();
+        const isConsultantReferee = req.user.role === 'Consultant' &&
+            !!(await ChatMessage.findOne({ receiverId: req.user.id, videoId }));
+        if (!isOwner && !isConsultantReferee) {
             return res.status(403).json({ message: 'Not authorised to download this report.' });
         }
 
