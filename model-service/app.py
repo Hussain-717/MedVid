@@ -10,7 +10,7 @@ app = Flask(__name__)
 # ── Paths ──────────────────────────────────────────────────────────────
 BASE_DIR     = os.path.dirname(__file__)
 CLIPS_FOLDER = os.path.join(BASE_DIR, 'clips')
-MODEL_PATH   = os.path.join(BASE_DIR, 'best_model.pth')
+MODEL_PATH   = os.path.join(BASE_DIR, 'best_model1.pth')
 os.makedirs(CLIPS_FOLDER, exist_ok=True)
 
 # ── Load model once at startup ─────────────────────────────────────────

@@ -57,7 +57,7 @@ class ClassificationHead(nn.Module):
 class DetectionHead(nn.Module):
     def __init__(self, d_model=512, dropout=0.3):
         super().__init__()
-        self.regressor = nn.Sequential(
+        self.detector = nn.Sequential(
             nn.Linear(d_model, 256),
             nn.ReLU(),
             nn.Dropout(dropout),
@@ -67,7 +67,7 @@ class DetectionHead(nn.Module):
 
     def forward(self, x):
         x = x.mean(dim=1)
-        return self.regressor(x)
+        return self.detector(x)
 
 class MedVidModel(nn.Module):
     def __init__(self, pretrained=False, d_model=512, nhead=8,
@@ -102,7 +102,7 @@ def load_model(model_path):
         map_location=DEVICE,
         weights_only=False
     )
-    model.load_state_dict(checkpoint['model_state_dict'])
+    model.load_state_dict(checkpoint['model_state'])
     model.to(DEVICE)
     model.eval()
     print(f"Model loaded! Epoch: {checkpoint['epoch']}, Val Loss: {checkpoint['val_loss']:.4f}")
